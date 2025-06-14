@@ -1,0 +1,9 @@
+server_dotsboxes.pl: This file contains all the predicates responsible for handling the web server, which manages the communication between the web interface and Prolog.
+
+To start the server, run the following command in your terminal:
+prolog server_dotsboxes.pl o swipl server_dotsboxes.pl
+This will launch a web server on port 9999.
+
+Once the server is running, open your web browser and navigate to:
+http://localhost:9999/ or http://localhost:9999/static/dotsboxes.html
+to start the game.

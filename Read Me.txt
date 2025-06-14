@@ -1,0 +1,3 @@
+La pagina web utiliza el algoritmo minimax con nivel de búsqueda 1, por problemas de tiempo de ejecución web.
+El programa Dentro de la carpeta "implementación Prolog Servidor" permite niveles personalizados, para ello abra la consola en la carpeta e indique este comando:
+swipl server_ceritolog.pl

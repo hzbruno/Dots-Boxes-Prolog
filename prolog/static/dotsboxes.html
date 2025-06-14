@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+  <head lang="en">
+    <!-- disable cache for debugging -->
+    <meta http-equiv="cache-control" content="no-cache"/>
+    <meta http-equiv="expires" content="0"/>
+    <meta http-equiv="pragma" content="no-cache"/>
+    <!-- end: disable cache for debugging -->
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico"/>  <!-- relative to 'static' dir -->
+    <link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet">
+    <link rel="stylesheet" href="dotsboxes.css"/>
+    <script src="dotsboxes.js" defer="defer"></script>
+
+    <title>Dots & Boxes</title>
+  </head>
+
+<body onload="renderPage();">
+  <noscript><h1>¡Activa JavaScript para jugar dotsboxes!</h1></noscript>
+
+<main>
+    <h1 class="titulo">Dots & Boxes</h1>
+
+    <div id="controls_wrapper">
+      
+      <form id="query_form">
+        <label for="size_txt">Tamaño:</label>
+        <input type="text" id="size_txt" size="10" value="3"/>
+
+        <div class="player-select">
+          <label>Jugador 1:</label>
+          <input type="radio" name="j1_radio" id="j1_h" value="h" checked/>
+          <label for="j1_h">Humano</label>
+          <input type="radio" name="j1_radio" id="j1_m" value="m"/>
+          <label for="j1_m">Máquina</label>
+        </div>
+
+        <div class="player-select">
+          <label>Jugador 2:</label>
+          <input type="radio" name="j2_radio" id="j2_h" value="h" checked/>
+          <label for="j2_h">Humano</label>
+          <input type="radio" name="j2_radio" id="j2_m" value="m"/>
+          <label for="j2_m">Máquina</label>
+        </div>
+        <label for="size_txt" >Nivel de MinMax:</label >
+        <input type="text" id="nivel" size="10" value="3"  />
+
+        <input type="button" id="new_game_btn" value="Juego nuevo" class="boton"/>
+      </form>
+     
+
+       <div id="game_div_container">
+      <div class="game" id="game_div"></div>
+    </div>
+
+    <div id="status_div">
+        <p><strong>Puntos Jugador 1:</strong> <span id="p1_lbl">0</span></p>
+        <p><strong>Puntos Jugador 2:</strong> <span id="p2_lbl">0</span></p>
+        <p><strong>Turno: Jugador</strong> <span id="turno_lbl">1</span></p>
+        <input type="button" id="suggestion_btn" value="Sugerir jugada" class="boton"/>
+        <div id="sugerencia_lbl"></div>
+    </div>
+  </div>
+
+     <div id="creditos">
+      <p>© 2025 <a href="https://hzbruno.github.io/portfolio/">Bruno Hernández</a>. All rights reserved.</p>
+      <p>Desarrollado con <a href="https://tau-prolog.org/">Tau Prolog</a>, <a href="https://www.swi-prolog.org/">SWI PROLOG</a>.</p>
+    </div>
+  </main>
+</body>
+</html>
+
