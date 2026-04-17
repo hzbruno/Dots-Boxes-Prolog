@@ -2,8 +2,8 @@
 
 const BOX_TEMPLATE = `
 <div class="box show">
-    <div class="top" id="line-@H" onclick="clickOnLine(id);"></div>
-    <div class="left" id="line-@V" onclick="clickOnLine(id);"></div>
+    <div class="top playable-line" id="line-@H"></div>
+    <div class="left playable-line" id="line-@V"></div>
     <div class="inside-cell" id="cell-@C">&nbsp;</div>
 </div>
 `;
@@ -11,7 +11,7 @@ const BOX_TEMPLATE = `
 const LAST_LEFT_LINE_TEMPLATE = `
 <div class="box show">
     <div class="hidden"></div>
-    <div class="left" id="line-@V" onclick="clickOnLine(id);"></div>
+    <div class="left playable-line" id="line-@V"></div>
     <div class="inside-cell">&nbsp;</div>
 </div>
 <div class="new-line"></div>
@@ -19,231 +19,330 @@ const LAST_LEFT_LINE_TEMPLATE = `
 
 const LAST_TOP_LINE_TEMPLATE = `
 <div class="box show">
-    <div class="top" id="line-@H" onclick="clickOnLine(id);"></div>
+    <div class="top playable-line" id="line-@H"></div>
     <div class="hidden"></div>
 </div>
 `;
 
-function getQueryResultVar(query_result, var_name) {
-    for (let i = 0; i < query_result.vars.length; i++) {
-        if (query_result.vars[i]["var"] == var_name) {
-            return query_result.vars[i]["value"];
+let uiBound = false;
+let gameOver = false;
+
+function readIntInput(id, fallback, min, max) {
+    const raw = parseInt(document.getElementById(id).value, 10);
+    if (Number.isNaN(raw)) {
+        return fallback;
+    }
+    return Math.min(max, Math.max(min, raw));
+}
+
+function getQueryResultVar(queryResult, varName) {
+    for (let i = 0; i < queryResult.vars.length; i++) {
+        if (queryResult.vars[i].var === varName) {
+            return queryResult.vars[i].value;
         }
     }
     return null;
 }
 
-// Send a request to the server and schedule a callback.
-async function fetchFromServer(path, request, callback) {
-    // callback should take a single arg, the response from the server.
+function parseCapturedCells(rawCells) {
     try {
-        const response = await fetch(
-            path,
-            {method: 'POST',
-             headers: {'Content-Type': 'application/json'},
-             body: JSON.stringify(request),
-             mode: 'cors',                  // Don't need?
-             cache: 'no-cache',             // Don't need?
-             credentials: 'same-origin',    // Don't need?
-             redirect: 'follow',            // Don't need?
-             referrerPolicy: 'no-referrer', // Don't need?
-            });
-        if (response.ok) { // response.status in range 200-299
-            callback(await response.json());
-        } else {
-            console.error('Fetch response:', response, 'request:', request);
-            alert('*** fetch ' + JSON.stringify(request) + ': HTTP status: ' + response.status);
-        }
-    } catch(err) {
-        // TODO: the following doesn't capture enough information;
-        //       there is interesting information in the console log
-        //       such as error code 500 or ERR_CONNECTION_REFUSED
-        console.error('Fetch error:', err, 'request:', request);
-        alert('***fetch ' + JSON.stringify(request) + ': ' + err);
+        const parsed = JSON.parse(rawCells);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
     }
 }
 
-// Called by <body onload="renderPage();">
-async function renderPage() {
-    // document.getElementById('query_form').addEventListener('submit', handleSubmit);
+function markLine(lineId, turno) {
+    const line = document.getElementById(lineId);
+    if (!line) {
+        return;
+    }
+    line.classList.add('marked-line');
+    line.classList.add(String(turno) === '1' ? 'blue-line' : 'red-line');
+}
+
+function paintCapturedCells(cells, turno) {
+    cells.forEach(([row, col]) => {
+        const cell = document.getElementById(`cell-${row}-${col}`);
+        if (!cell) {
+            return;
+        }
+        cell.textContent = turno;
+        cell.classList.remove('blue', 'red');
+        cell.classList.add(String(turno) === '1' ? 'blue' : 'red');
+    });
+}
+
+function updateScore(turno, delta) {
+    const scoreLabel = document.getElementById(`p${turno}_lbl`);
+    const previous = parseInt(scoreLabel.textContent, 10) || 0;
+    scoreLabel.textContent = String(previous + delta);
+}
+
+function setBoardInteractive(enabled) {
+    const board = document.getElementById('game_div');
+    board.classList.toggle('disabled', !enabled);
+}
+
+function setupLevelPicker() {
+    const picker = document.getElementById('nivel');
+    const output = document.getElementById('nivel_value');
+    if (!picker || !output) {
+        return;
+    }
+
+    const syncValue = () => {
+        output.textContent = picker.value;
+    };
+
+    picker.addEventListener('input', syncValue);
+    syncValue();
+}
+
+async function fetchFromServer(path, request) {
+    try {
+        const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request),
+            cache: 'no-cache'
+        });
+
+        if (!response.ok) {
+            console.error('Fetch response:', response, 'request:', request);
+            alert(`Error HTTP ${response.status} en consulta al servidor`);
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Fetch error:', error, 'request:', request);
+        alert(`Error conectando con el servidor: ${error}`);
+        return null;
+    }
+}
+
+function buildBoardMarkup(size) {
+    const elements = [];
+    for (let i = 1; i < size; i++) {
+        for (let j = 1; j < size; j++) {
+            const id = `${i}-${j}`;
+            elements.push(
+                BOX_TEMPLATE
+                    .replace(/@H/g, `${id}-h`)
+                    .replace(/@V/g, `${id}-v`)
+                    .replace(/@C/g, id)
+            );
+        }
+        elements.push(LAST_LEFT_LINE_TEMPLATE.replace(/@V/g, `${i}-${size}-v`));
+    }
+
+    for (let j = 1; j < size; j++) {
+        elements.push(LAST_TOP_LINE_TEMPLATE.replace(/@H/g, `${size}-${j}-h`));
+    }
+
+    return elements.join('');
+}
+
+function bindUiEvents() {
+    if (uiBound) {
+        return;
+    }
+
     document.getElementById('new_game_btn').addEventListener('click', handleNewGameBtn);
     document.getElementById('suggestion_btn').addEventListener('click', handleSuggestionBtn);
+    document.getElementById('game_div').addEventListener('click', handleBoardClick);
+    setupLevelPicker();
+    uiBound = true;
+}
 
-        let prolog_query = 'tablero(' + 4 + ',Tablero).';
-        await fetchFromServer('/json', {query: prolog_query},
-                                query_result => handleNewGameResult(query_result, 4));
+function renderPage() {
+    bindUiEvents();
+}
+
+function handleBoardClick(event) {
+    const line = event.target.closest('.playable-line');
+    if (!line || line.classList.contains('marked-line')) {
+        return;
+    }
+    clickOnLine(line.id);
+}
+
+async function startNewGame() {
+    const size = readIntInput('size_txt', 3, 2, 8) + 1;
+    const queryResult = await fetchFromServer('/json', {
+        query: `tablero(${size},Tablero).`
+    });
+
+    if (!queryResult) {
+        return;
+    }
+
+    handleNewGameResult(queryResult, size);
 }
 
 async function handleNewGameBtn(event) {
-  event.preventDefault();
-
-  let size_val = parseInt(document.getElementById('size_txt').value) + 1;
-  let prolog_query = 'tablero(' + size_val + ',Tablero).';
-  await fetchFromServer('/json', {query: prolog_query},
-                        query_result => handleNewGameResult(query_result, size_val));
+    event.preventDefault();
+    await startNewGame();
 }
 
-function handleNewGameResult(query_result, size_val) {
-    if (query_result.success && query_result.error == "") {
-        document.tablero = getQueryResultVar(query_result, "Tablero");
-        document.getElementById('status_div').style.display = "block";
-
-        document.getElementById('p1_lbl').innerHTML = "0";
-        document.getElementById('p2_lbl').innerHTML = "0";
-        document.getElementById('turno_lbl').innerHTML = "1";
-
-        let game_div = document.getElementById('game_div');
-        game_div.style.display = "block";
-
-
-        let elements = [];
-        for (let i = 1; i < size_val; i++) {
-            for (let j = 1; j < size_val; j++) {
-                let current_id = i + "-" + j;
-                elements.push(BOX_TEMPLATE.replace('@H',current_id + "-h").replace('@V',current_id + "-v").replace('@C',current_id));
-            }
-            let current_id = i + "-" + size_val;
-            elements.push(LAST_LEFT_LINE_TEMPLATE.replace('@V',current_id + "-v"));
-        }
-        for (let j = 1; j < size_val; j++) {
-            let current_id = size_val + "-" + j;
-            elements.push(LAST_TOP_LINE_TEMPLATE.replace('@H',current_id + "-h"));
-        }
-        game_div.innerHTML = elements.join("");
-        siguienteTurno();
+function handleNewGameResult(queryResult, size) {
+    if (!queryResult.success || queryResult.error !== '') {
+        return;
     }
+
+    const tablero = getQueryResultVar(queryResult, 'Tablero');
+    if (!tablero) {
+        return;
+    }
+
+    gameOver = false;
+    document.tablero = tablero;
+    document.getElementById('p1_lbl').textContent = '0';
+    document.getElementById('p2_lbl').textContent = '0';
+    document.getElementById('turno_lbl').textContent = '1';
+    document.getElementById('sugerencia_lbl').textContent = '';
+
+    const board = document.getElementById('game_div');
+    board.style.display = 'block';
+    board.innerHTML = buildBoardMarkup(size);
+    setBoardInteractive(true);
+    siguienteTurno();
 }
 
 async function handleSuggestionBtn(event) {
-  event.preventDefault();
-  let tablero = document.tablero;
-  let turno = document.getElementById('turno_lbl').innerHTML;
-  const nivel = document.getElementById('nivel').value;
-  let prolog_query = 'sugerencia_jugada(' + [tablero,turno,nivel].join(',') + ',F,C,D).';
-  await fetchFromServer('/json', {query: prolog_query},
-                        query_result => handleSuggestionResult(query_result));
-}
+    event.preventDefault();
+    if (!document.tablero || gameOver) {
+        return;
+    }
 
-function handleSuggestionResult(query_result) {
-  if (query_result.success && query_result.error == "") {
-      let fila = getQueryResultVar(query_result, "F");
-      let columna = getQueryResultVar(query_result, "C");
-      let dir = getQueryResultVar(query_result, "D");
-      document.getElementById('sugerencia_lbl').innerHTML = fila + "-" + columna + "-" + dir;
-  }
+    const turno = document.getElementById('turno_lbl').textContent;
+    const level = readIntInput('nivel', 2, 1, 6);
+    const queryResult = await fetchFromServer('/json', {
+        query: `sugerencia_jugada(${document.tablero},${turno},${level},F,C,D).`
+    });
+
+    const label = document.getElementById('sugerencia_lbl');
+    if (!queryResult || !queryResult.success || queryResult.error !== '') {
+        label.textContent = '-';
+        return;
+    }
+
+    const fila = getQueryResultVar(queryResult, 'F');
+    const columna = getQueryResultVar(queryResult, 'C');
+    const dir = getQueryResultVar(queryResult, 'D');
+    label.textContent = `${fila}-${columna}-${dir}`;
 }
 
 async function clickOnLine(id) {
-    // Remove current suggestion if there is one
-    document.getElementById('sugerencia_lbl').innerHTML = "";
-    // Check if the current player is human
-    let turno = document.getElementById('turno_lbl').innerHTML;
-    if (!document.getElementById('j' + turno + '_h').checked) {
+    if (!document.tablero || gameOver) {
         return;
     }
-    let id_parts = id.split("-");
-    let fila = id_parts[1];
-    let columna = id_parts[2];
-    let direccion = id_parts[3];
-    let prolog_query = 'jugada_humano(' + [document.tablero,turno,fila,columna,direccion].join(',') + ',Tablero2,Turno2,Celdas).';
-    await fetchFromServer('/json', {query: prolog_query},
-                          query_result => handleClickOnLineResult(query_result, id, turno));
-}
 
-function handleClickOnLineResult(query_result, id, turno) {
-    if (query_result.success && query_result.error == "") {
-    let linea = document.getElementById(id);
-    if(turno == 1){linea.classList.add('marked-line','blue-line');}
-    else{linea.classList.add('marked-line','red-line');}
-
-        document.tablero = getQueryResultVar(query_result, "Tablero2");
-        document.getElementById('turno_lbl').innerHTML = getQueryResultVar(query_result, "Turno2");
-        let celdas = JSON.parse(getQueryResultVar(query_result, "Celdas"));
-        for (let i = 0; i < celdas.length; i++) {
-            let fila = celdas[i][0];
-            let columna = celdas[i][1];
-            let cell = document.getElementById('cell-' + fila + '-' + columna);
-            cell.innerHTML = turno;
-            if(turno == 1)cell.classList.add("blue");
-            else cell.classList.add("red");
-        }
-        let puntos_lbl_id = 'p' + turno + '_lbl';
-        document.getElementById(puntos_lbl_id).innerHTML = parseInt(document.getElementById(puntos_lbl_id).innerHTML) + celdas.length;
-        siguienteTurno();
+    const turno = document.getElementById('turno_lbl').textContent;
+    if (!document.getElementById(`j${turno}_h`).checked) {
+        return;
     }
+
+    const parts = id.split('-');
+    if (parts.length !== 4) {
+        return;
+    }
+
+    document.getElementById('sugerencia_lbl').textContent = '';
+    const [, fila, columna, direccion] = parts;
+    setBoardInteractive(false);
+
+    const queryResult = await fetchFromServer('/json', {
+        query: `jugada_humano(${document.tablero},${turno},${fila},${columna},${direccion},Tablero2,Turno2,Celdas).`
+    });
+
+    if (!queryResult || !queryResult.success || queryResult.error !== '') {
+        setBoardInteractive(true);
+        return;
+    }
+
+    markLine(id, turno);
+    document.tablero = getQueryResultVar(queryResult, 'Tablero2');
+    document.getElementById('turno_lbl').textContent = getQueryResultVar(queryResult, 'Turno2');
+
+    const celdas = parseCapturedCells(getQueryResultVar(queryResult, 'Celdas'));
+    paintCapturedCells(celdas, turno);
+    updateScore(turno, celdas.length);
+    siguienteTurno();
 }
 
 async function siguienteTurno() {
-    let tablero = document.tablero;
-    let prolog_query = 'fin_del_juego(' + tablero + ',P1,P2,Ganador).';
-    await fetchFromServer('/json', {query: prolog_query},
-                        query_result => handleGameOverResult(query_result));
-}
-
-async function handleGameOverResult(query_result) {
-  if (query_result.success && query_result.error == "") {
-      // The game is over
-      let p1 = getQueryResultVar(query_result, "P1");
-      let p2 = getQueryResultVar(query_result, "P2");
-      let ganador = getQueryResultVar(query_result, "Ganador");
-      alert("Fin del juego!\nPuntos jugador 1: " + p1 + "\nPuntos jugador 2: " + p2 + "\n" + ganador);
-      return;
-  } else {
-    // The game is not over, check if the current player is the computer
-    let turno = document.getElementById('turno_lbl').innerHTML;
-    let jugador_m_id = 'j' + turno + '_m';
-    if (document.getElementById(jugador_m_id).checked) {
-        // Perform the next computer move
-        // jugada_maquina(+M,+Turno,+P1,+P2,+Nivel,-M2,-F,-C,-D,-Turno2,-P1b,-P2b,-Celdas)
-        document.getElementById('sugerencia_lbl').innerHTML = "";
-        let tablero = document.tablero;
-        let turno = document.getElementById('turno_lbl').innerHTML;
-        const nivel = document.getElementById('nivel').value;
-        let prolog_query = 'jugada_maquina(' + [tablero,turno,nivel].join(',') + ',F,C,D,Tablero2,Turno2,Celdas).';
-        await fetchFromServer('/json', {query: prolog_query},
-                              query_result => handleComputerMoveResult(query_result, turno));
+    if (!document.tablero) {
+        return;
     }
-  }
-}
 
-function handleComputerMoveResult(query_result, turno) {
-    if (query_result.success && query_result.error == "") {
-        let line_id = "line-" + getQueryResultVar(query_result, "F") + '-' + getQueryResultVar(query_result, "C") + '-' + getQueryResultVar(query_result, "D")
-    
-    let linea = document.getElementById(line_id);
-    if(turno == 1){linea.classList.add('marked-line','blue-line');}
-    else{linea.classList.add('marked-line','red-line');}
+    document.getElementById('sugerencia_lbl').textContent = '';
+    const queryResult = await fetchFromServer('/json', {
+        query: `fin_del_juego(${document.tablero},P1,P2,Ganador).`
+    });
 
-        document.tablero = getQueryResultVar(query_result, "Tablero2");
-        document.getElementById('turno_lbl').innerHTML = getQueryResultVar(query_result, "Turno2");
-        let celdas = JSON.parse(getQueryResultVar(query_result, "Celdas"));
-        for (let i = 0; i < celdas.length; i++) {
-            let fila = celdas[i][0];
-            let columna = celdas[i][1];
-            let cell = document.getElementById('cell-' + fila + '-' + columna);
-            cell.innerHTML = turno;
-            if(turno == 1)cell.classList.add("blue");
-            else cell.classList.add("red");
-            
+    if (!queryResult) {
+        setBoardInteractive(true);
+        return;
+    }
+
+    if (queryResult.success && queryResult.error === '') {
+        gameOver = true;
+        setBoardInteractive(false);
+        const p1 = parseInt(getQueryResultVar(queryResult, 'P1'), 10) || 0;
+        const p2 = parseInt(getQueryResultVar(queryResult, 'P2'), 10) || 0;
+
+        let ganador = 'Empate';
+        if (p1 > p2) {
+            ganador = 'Jugador 1';
+        } else if (p2 > p1) {
+            ganador = 'Jugador 2';
         }
-        let puntos_lbl_id = 'p' + turno + '_lbl';
-        document.getElementById(puntos_lbl_id).innerHTML = parseInt(document.getElementById(puntos_lbl_id).innerHTML) + celdas.length;
-        siguienteTurno();
+
+        alert(`Juego terminado\nJugador 1: ${p1}\nJugador 2: ${p2}\nGanador: ${ganador}`);
+        return;
+    }
+
+    const turno = document.getElementById('turno_lbl').textContent;
+    const isMachine = document.getElementById(`j${turno}_m`).checked;
+    if (isMachine) {
+        setBoardInteractive(false);
+        setTimeout(intentarJugadaMaquina, 0);
+    } else {
+        setBoardInteractive(true);
     }
 }
 
-// Sanitize a string, allowing tags to not cause problems
-function sanitizeText(raw_str) {
-    // There shouldn't be a need for .replace(/ /g, '&nbsp;') if CSS
-    // has white-space:pre ... but by experiment, it's needed.
-    // TODO: remove the '<br/>' insertion and put it into extract_color.pl.
-    return raw_str ? (raw_str
-                      .replace(/&/g, '&amp;')
-                      .replace(/</g, '&lt;')
-                      .replace(/>/g, '&gt;')
-                      .replace(/"/g, '&quot;')
-                      .replace(/'/g, '&apos;')
-                      .replace(/\n/g, '<br/>')  // TODO: remove - not needed?
-                      .replace(/\s/g, '&nbsp;'))  // TODO: add test for tabs in source
-        : raw_str;
+async function intentarJugadaMaquina() {
+    if (!document.tablero || gameOver) {
+        return;
+    }
+
+    const turno = document.getElementById('turno_lbl').textContent;
+    const level = readIntInput('nivel', 2, 1, 6);
+    const queryResult = await fetchFromServer('/json', {
+        query: `jugada_maquina(${document.tablero},${turno},${level},F,C,D,Tablero2,Turno2,Celdas).`
+    });
+
+    if (!queryResult || !queryResult.success || queryResult.error !== '') {
+        setBoardInteractive(true);
+        return;
+    }
+
+    const lineId = `line-${getQueryResultVar(queryResult, 'F')}-${getQueryResultVar(queryResult, 'C')}-${getQueryResultVar(queryResult, 'D')}`;
+    markLine(lineId, turno);
+
+    document.tablero = getQueryResultVar(queryResult, 'Tablero2');
+    document.getElementById('turno_lbl').textContent = getQueryResultVar(queryResult, 'Turno2');
+    const celdas = parseCapturedCells(getQueryResultVar(queryResult, 'Celdas'));
+    paintCapturedCells(celdas, turno);
+    updateScore(turno, celdas.length);
+    siguienteTurno();
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    bindUiEvents();
+    startNewGame();
+});

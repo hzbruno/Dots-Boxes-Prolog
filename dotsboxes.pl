@@ -55,8 +55,39 @@ jugada_maquina(Tab, Turno, Nivel, F, C, D, Tab2, Turno2, Caps) :-
 
 % sugerencia_jugada(+Tablero,+Turno,+Nivel,?F,?C,?D)
 sugerencia_jugada(Tab, Turno, Nivel, F, C, D) :-
-    jugadas_posibles(Tab, Jugadas),
-    mejor_jugada(Jugadas, Tab, Turno, Nivel, -1000000, none, F, C, D, Turno).
+    jugadas_posibles(Tab, Jugadas0),
+    length(Jugadas0, Restantes),
+    nivel_efectivo(Nivel, Restantes, NivelEf),
+    ordenar_jugadas(Tab, Turno, Jugadas0, Jugadas),
+    mejor_jugada(Jugadas, Tab, Turno, NivelEf, -1000000, none, F, C, D, Turno).
+
+% nivel_efectivo(+NivelSolicitado,+JugadasRestantes,-NivelEfectivo)
+% Limita la profundidad en etapas tempranas para reducir tiempos de respuesta.
+nivel_efectivo(Nivel, Restantes, NivelEf) :-
+    N1 is max(1, Nivel),
+    N2 is min(6, N1),
+    limite_nivel_por_jugadas(Restantes, Tope),
+    NivelEf is min(N2, Tope).
+
+limite_nivel_por_jugadas(Restantes, 2) :- Restantes > 45, !.
+limite_nivel_por_jugadas(Restantes, 3) :- Restantes > 25, !.
+limite_nivel_por_jugadas(Restantes, 4) :- Restantes > 12, !.
+limite_nivel_por_jugadas(_, 6).
+
+% ordenar_jugadas(+Tab,+Turno,+Jugadas,-Ordenadas)
+% Evalua primero jugadas que capturan para potenciar la poda alpha-beta.
+ordenar_jugadas(Tab, Turno, Jugadas, Ordenadas) :-
+    particionar_jugadas(Tab, Turno, Jugadas, Capturas, NoCapturas),
+    append(Capturas, NoCapturas, Ordenadas).
+
+particionar_jugadas(_, _, [], [], []).
+particionar_jugadas(Tab, Turno, [[F,C,D]|R], [[F,C,D]|Capt], NoCapt) :-
+    marcoLinea(Tab, Turno, F, C, D, _, Caps),
+    Caps \== [],
+    !,
+    particionar_jugadas(Tab, Turno, R, Capt, NoCapt).
+particionar_jugadas(Tab, Turno, [J|R], Capt, [J|NoCapt]) :-
+    particionar_jugadas(Tab, Turno, R, Capt, NoCapt).
 
 % mejor_jugada(+Jugadas, +Tablero, +Turno, +Nivel, +MejorValor, +MejorJugada, -F, -C, -D, +Orig)
 mejor_jugada([], _, _, _, _, [F0,C0,D0], F0, C0, D0, _).    % no hay jugadas posibles
@@ -76,7 +107,8 @@ minimax(Tab, _, 0, _, _, Valor, Orig) :- !, heuristica(Tab, Orig, Valor). % caso
 minimax(Tab, _, _, _, _, Valor, Orig) :-
     fin_del_juego(Tab, _, _, _), !, heuristica(Tab, Orig, Valor). % caso base, node is a terminal node
 minimax(Tab, Turno, Nivel, A, B, Valor, Orig) :-
-    jugadas_posibles(Tab, Js),      % obtengo las jugadas posibles
+    jugadas_posibles(Tab, Js0),     % obtengo las jugadas posibles
+    ordenar_jugadas(Tab, Turno, Js0, Js),
     switch(Turno, Otro),            % obtengo el turno del otro jugador
     N1 is Nivel-1,                  % disminuyo el nivel
     ( Turno = Orig                  % turno del que llama -> maximizo, sino minimizo
